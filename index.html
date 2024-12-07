@@ -28,12 +28,12 @@
         }
 
         h1 {
-            font-size: 36px;
+            font-size: 2.5rem;
             margin-bottom: 10px;
         }
 
         h2 {
-            font-size: 24px;
+            font-size: 1.5rem;
             margin-top: 20px;
         }
 
@@ -44,9 +44,10 @@
             border-radius: 10px;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
             margin-top: 20px;
-            font-size: 16px;
+            font-size: 1rem;
             white-space: pre-wrap;
             word-wrap: break-word;
+            overflow-x: auto;
         }
 
         footer {
@@ -60,7 +61,44 @@
         }
 
         footer p {
-            font-size: 14px;
+            font-size: 0.875rem;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2rem;
+            }
+
+            h2 {
+                font-size: 1.2rem;
+            }
+
+            .code-container {
+                padding: 15px;
+            }
+
+            footer p {
+                font-size: 0.75rem;
+            }
+        }
+
+        @media (max-width: 480px) {
+            h1 {
+                font-size: 1.5rem;
+            }
+
+            h2 {
+                font-size: 1rem;
+            }
+
+            .code-container {
+                padding: 10px;
+            }
+
+            footer {
+                padding: 8px;
+            }
         }
     </style>
 </head>
