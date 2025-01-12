@@ -91,105 +91,266 @@
         <pre><code>
 // ESP32 code for Structural Health Monitoring System
 
-#include &lt;WiFi.h&gt;
-#include &lt;Wire.h&gt;
-#include &lt;Adafruit_MPU6050.h&gt;
-#include &lt;Adafruit_Sensor.h&gt;
-#include "HX711.h"
-#include &lt;HTTPClient.h&gt;
-#include &lt;time.h&gt; // For NTP-based timestamp
-#include &lt;esp_wifi.h&gt;
-#include &lt;EEPROM.h&gt; // For using RTC memory
+#include &lt;WiFi.h&gt;  // Include Wi-Fi library
+#include &lt;Wire.h&gt;  // Include Wire library for I2C communication
+#include &lt;Adafruit_MPU6050.h&gt;  // Include Adafruit MPU6050 sensor library
+#include &lt;Adafruit_Sensor.h&gt;  // Include Adafruit sensor library for sensor handling
+#include "HX711.h"  // Include HX711 load cell amplifier library
+#include &lt;HTTPClient.h&gt;  // Include HTTP client library to send data over HTTP
+#include &lt;time.h&gt;  // Include time library for NTP-based timestamp
+#include &lt;esp_wifi.h&gt;  // Include ESP32 Wi-Fi functions
+#include &lt;EEPROM.h&gt;  // Include EEPROM library for RTC memory usage
 
 // Wi-Fi credentials
-const char* ssid = "Orange_629C";
-const char* password = "WHAT THE SIGMA";
+const char* ssid = "Orange_629C";  // Wi-Fi network SSID
+const char* password = "WHAT THE SIGMA";  // Wi-Fi network password
 
 // ThingSpeak credentials
-const char* thingspeakServer = "http://api.thingspeak.com/update";
-String apiKeyChannel = "JTEBR201T5O5C5JP"; // ThingSpeak Write API Key
+const char* thingspeakServer = "http://api.thingspeak.com/update";  // ThingSpeak API server URL
+String apiKeyChannel = "JTEBR201T5O5C5JP";  // ThingSpeak Write API Key for sending data
 
 // NTP time server configuration
-const char* ntpServer = "pool.ntp.org";
-const long gmtOffset_sec = 3600; // Adjust to your timezone (in seconds)
-const int daylightOffset_sec = 3600; // Daylight saving time offset
+const char* ntpServer = "pool.ntp.org";  // NTP server to get the time
+const long gmtOffset_sec = 3600;  // GMT offset in seconds (e.g., for GMT+1)
+const int daylightOffset_sec = 3600;  // Daylight saving time offset (in seconds)
 
 // MPU-6050 setup
-Adafruit_MPU6050 mpu;
+Adafruit_MPU6050 mpu;  // Create an instance of the MPU6050 sensor
 
 // HX711 load cell setup (GPIO 27 for DT and GPIO 26 for SCK)
-#define LOADCELL_DT 27
-#define LOADCELL_SCK 26
-HX711 loadCell;
+#define LOADCELL_DT 27  // Data pin for HX711 load cell amplifier
+#define LOADCELL_SCK 26  // Clock pin for HX711 load cell amplifier
+HX711 loadCell;  // Create an instance of HX711
 
 // Potentiometer pins
-#define POT1_PIN 34
-#define POT2_PIN 35
+#define POT1_PIN 34  // Pin for the first potentiometer
+#define POT2_PIN 35  // Pin for the second potentiometer
 
 // Buzzer pin (Updated to GPIO 18)
-#define BUZZER_PIN 18  // Buzzer pin now on GPIO 18
+#define BUZZER_PIN 18  // Pin for the buzzer (GPIO 18)
 
 // Maximum voltage and length constants for potentiometers
-const float V_max = 3.3;      // Maximum voltage from potentiometer in Volts
-const float L_max = 20.0;     // Maximum length in millimeters (20 mm)
+const float V_max = 3.3;  // Maximum voltage from potentiometer in Volts
+const float L_max = 20.0;  // Maximum length in millimeters (20 mm)
 
 // RTC Memory Setup
-RTC_DATA_ATTR float lastZeroCrossingTime = 0;  // This variable will retain its value across deep sleep cycles
-RTC_DATA_ATTR bool wasPositive = false;
+RTC_DATA_ATTR float lastZeroCrossingTime = 0;  // Variable to retain value across deep sleep cycles
+RTC_DATA_ATTR bool wasPositive = false;  // Variable to track the sign of the acceleration
 
 // Declare Sensor Variables Globally
-float pot1Value = 0;
-float pot2Value = 0;
-float length1 = 0;
-float length2 = 0;
-float loadValue = 0;
-float oscillationFrequency = 0;
-float accelX = 0;
+float pot1Value = 0;  // Variable to store potentiometer 1 value
+float pot2Value = 0;  // Variable to store potentiometer 2 value
+float length1 = 0;  // Variable to store length for potentiometer 1
+float length2 = 0;  // Variable to store length for potentiometer 2
+float loadValue = 0;  // Variable to store the load cell value
+float oscillationFrequency = 0;  // Variable to store the oscillation frequency
+float accelX = 0;  // Variable to store the X-axis acceleration value
 
-unsigned long sampleInterval = 25000 * 1000; // 25 seconds in microseconds for deep sleep
+unsigned long sampleInterval = 25000 * 1000;  // Deep sleep interval in microseconds (25 seconds)
+
 
 // Thresholds
 const float loadThreshold = 750.0;  // Load threshold: 750 grams
-const float frequencyThreshold = 3.0; // Frequency threshold: 3 Hz
-const float lengthThreshold = 1.0;   // Length threshold: 1 mm for either potentiometer
+const float frequencyThreshold = 3.0;  // Frequency threshold: 3 Hz
+const float lengthThreshold = 1.0;  // Length threshold: 1 mm for either potentiometer
 
 // Calibration values for load cell (replace with your values)
-long tareOffset = -2134700;  // Set to the raw tare reading after taring (before using calibration factor)
-float calibrationFactor = -154.02; // Set the calibration factor after performing a known weight calibration
+long tareOffset = -2134700;  // Tare offset value for load cell
+float calibrationFactor = -154.02;  // Calibration factor for load cell
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(115200);  // Start serial communication at 115200 baud rate
 
   // Connect to Wi-Fi
-  connectToWiFi();
+  connectToWiFi();  // Call function to connect to Wi-Fi
 
   // Initialize MPU-6050
-  initializeMPU6050();
+  initializeMPU6050();  // Call function to initialize the MPU6050 sensor
 
   // Initialize HX711 (Load Cell) with calibration
-  initializeLoadCell();
+  initializeLoadCell();  // Call function to initialize the load cell
 
   // Set potentiometer pins as input
-  pinMode(POT1_PIN, INPUT);
-  pinMode(POT2_PIN, INPUT);
+  pinMode(POT1_PIN, INPUT);  // Set potentiometer 1 pin as input
+  pinMode(POT2_PIN, INPUT);  // Set potentiometer 2 pin as input
 
   // Set buzzer pin as output
-  pinMode(BUZZER_PIN, OUTPUT);
-  digitalWrite(BUZZER_PIN, LOW); // Ensure the buzzer is off initially
+  pinMode(BUZZER_PIN, OUTPUT);  // Set the buzzer pin as output
+  digitalWrite(BUZZER_PIN, LOW);  // Ensure the buzzer is off initially
 
   // Perform measurement and send data to ThingSpeak
-  performMeasurementAndSend();
+  performMeasurementAndSend();  // Call function to read sensors and send data
 
   // Sleep and wakeup for the next cycle
-  esp_sleep_enable_timer_wakeup(sampleInterval);
-  esp_deep_sleep_start();
+  esp_sleep_enable_timer_wakeup(sampleInterval);  // Set deep sleep wakeup timer
+  esp_deep_sleep_start();  // Put the ESP32 into deep sleep
 }
 
 void loop() {
   // No need to do anything in loop since everything is handled in setup()
 }
 
-// Other functions and code continue as shown...
+// Function to connect to Wi-Fi
+void connectToWiFi() {
+  Serial.println("Connecting to Wi-Fi...");  // Print message to serial monitor
+  WiFi.begin(ssid, password);  // Start Wi-Fi connection using SSID and password
+
+  int maxRetries = 20;  // Set a maximum number of retries to connect
+  while (WiFi.status() != WL_CONNECTED && maxRetries > 0) {  // Wait for Wi-Fi connection
+    delay(1000);  // Wait for 1 second before retrying
+    maxRetries--;  // Decrease retry count
+  }
+  if (WiFi.status() == WL_CONNECTED) {  // Check if Wi-Fi is connected
+    Serial.println("Wi-Fi Connected.");  // Print success message
+  } else {
+    Serial.println("Failed to connect to Wi-Fi.");  // Print failure message
+  }
+
+  esp_wifi_set_max_tx_power(14);  // Set Wi-Fi transmit power to 14 dBm
+}
+
+// Function to initialize MPU-6050
+void initializeMPU6050() {
+  Serial.println("Initializing MPU6050...");  // Print initialization message
+  if (!mpu.begin()) {  // Try to initialize the MPU6050
+    Serial.println("Failed to find MPU6050 chip");  // Print error if initialization fails
+    while (true);  // Halt the program if sensor is not found
+  }
+  mpu.setAccelerometerRange(MPU6050_RANGE_8_G);  // Set accelerometer range to 8G
+  mpu.setGyroRange(MPU6050_RANGE_500_DEG);  // Set gyroscope range to 500 degrees per second
+  mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);  // Set filter bandwidth to 21 Hz
+  Serial.println("MPU6050 initialized.");  // Print success message
+}
+
+// Function to initialize HX711 load cell
+void initializeLoadCell() {
+  Serial.println("Initializing Load Cell...");  // Print initialization message
+  loadCell.begin(LOADCELL_DT, LOADCELL_SCK);  // Initialize load cell with data and clock pins
+
+  // Tare the load cell to reset the weight to 0
+  loadCell.tare();  // Call tare function to reset the load cell reading to 0
+  Serial.println("Load cell tared (set to zero).");  // Print tare success message
+
+  // Set the tare offset and calibration factor
+  loadCell.set_offset(tareOffset);  // Set the tare offset value for calibration
+  loadCell.set_scale(calibrationFactor);  // Set the calibration factor
+
+  Serial.println("Load Cell initialized with calibration.");  // Print initialization success message
+}
+
+// Function to perform measurement and send data to ThingSpeak
+void performMeasurementAndSend() {
+  readSensors();  // Read sensor values
+
+  // Check thresholds and activate the buzzer if needed
+  checkThresholdsAndActivateBuzzer();  // Check if any sensor value exceeds thresholds and activate buzzer
+
+  // Print all sensor values in one line to the Serial Monitor
+  Serial.print("Load (g): ");
+  Serial.print(loadValue, 2);  // Print the load value (grams) with 2 decimal places
+
+  Serial.print(" | Freq (Hz): ");
+  Serial.print(oscillationFrequency, 2);  // Print the oscillation frequency (Hz)
+
+  Serial.print(" | AccelX (m/s²): ");
+  Serial.print(accelX, 2);  // Print the X-axis acceleration value (m/s²)
+
+  Serial.print(" | Length1 (mm): ");
+  Serial.print(length1, 2);  // Print length from potentiometer 1 (mm)
+
+  Serial.print(" | Length2 (mm): ");
+  Serial.println(length2, 2);  // Print length from potentiometer 2 (mm)
+
+  sendToThingSpeak();  // Send the data to ThingSpeak
+}
+
+// Function to read sensor values
+void readSensors() {
+  // Get acceleration data to determine oscillation frequency (X-axis)
+  sensors_event_t a, g, temp;
+  mpu.getEvent(&a, &g, &temp);  // Read accelerometer and gyro data
+  accelX = a.acceleration.x;  // Store the X-axis acceleration value
+  float currentTime = millis() / 1000.0;  // Get the current time in seconds
+
+  // Detect zero-crossing for oscillation frequency based on X-axis acceleration
+  if ((accelX > 0 && !wasPositive) || (accelX < 0 && wasPositive)) {
+    float oscillationPeriod = currentTime - lastZeroCrossingTime;  // Calculate oscillation period
+    lastZeroCrossingTime = currentTime;  // Store the current time for the next cycle
+
+    if (oscillationPeriod > 0.001) {  // Avoid division by zero
+      oscillationFrequency = 1 / (2 * oscillationPeriod);  // Calculate oscillation frequency (in Hz)
+    }
+    wasPositive = accelX > 0;  // Track if acceleration is positive or negative
+  }
+
+  // Read potentiometer values (in voltage)
+  pot1Value = analogRead(POT1_PIN) * (V_max / 4095.0);  // Read potentiometer 1 value (converted to voltage)
+  pot2Value = analogRead(POT2_PIN) * (V_max / 4095.0);  // Read potentiometer 2 value (converted to voltage)
+
+  // Convert voltage to length
+  length1 = (pot1Value / V_max) * L_max;  // Convert potentiometer 1 voltage to length (mm)
+  length2 = (pot2Value / V_max) * L_max;  // Convert potentiometer 2 voltage to length (mm)
+
+  // Read load cell value
+  loadValue = loadCell.get_units(10);  // Get the average of 10 readings from the load cell
+}
+
+// Function to send data to ThingSpeak
+void sendToThingSpeak() {
+  if (WiFi.status() == WL_CONNECTED) {  // Check if Wi-Fi is connected
+    HTTPClient http;  // Create HTTPClient instance
+    String url = String(thingspeakServer) + "?api_key=" + apiKeyChannel;  // Prepare the URL
+
+    // Add all data fields for load value, frequency, acceleration (X-axis), and potentiometer values
+    url += "&field1=" + String(loadValue, 2);
+    url += "&field2=" + String(oscillationFrequency, 2);
+    url += "&field3=" + String(accelX, 2);  // This is now the X-axis acceleration
+    url += "&field4=" + String(length1, 2);
+    url += "&field5=" + String(length2, 2);
+
+    // Send the data to ThingSpeak
+    delay(500);  // Small delay before initiating the HTTP connection
+    http.begin(url);  // Start HTTP connection to ThingSpeak
+    int httpCode = http.GET();  // Send GET request to ThingSpeak
+
+    if (httpCode > 0) {  // Check if request was successful
+      if (httpCode == HTTP_CODE_OK) {
+        Serial.println("Data sent to ThingSpeak successfully.");  // Print success message
+      } else {
+        Serial.printf("Error while sending data. HTTP Error code: %d\n", httpCode);  // Print error message
+      }
+    } else {
+      Serial.printf("HTTP request failed, error: %s\n", http.errorToString(httpCode).c_str());  // Print failure message
+    }
+
+    http.end();  // End the HTTP connection
+  }
+}
+
+// Function to check thresholds and activate the buzzer
+void checkThresholdsAndActivateBuzzer() {
+  // Check if the load, frequency, or length exceeds the thresholds
+  if (loadValue > loadThreshold) {  // If load exceeds threshold
+    digitalWrite(BUZZER_PIN, HIGH);  // Activate the buzzer
+    delay(500);  // Buzzer on for 500ms
+    digitalWrite(BUZZER_PIN, LOW);  // Turn off the buzzer
+    Serial.println("Load Exceeded!");  // Print message to serial
+  }
+
+  if (oscillationFrequency > frequencyThreshold) {  // If frequency exceeds threshold
+    digitalWrite(BUZZER_PIN, HIGH);  // Activate the buzzer
+    delay(500);  // Buzzer on for 500ms
+    digitalWrite(BUZZER_PIN, LOW);  // Turn off the buzzer
+    Serial.println("Frequency Exceeded!");  // Print message to serial
+  }
+
+  if (length1 > lengthThreshold || length2 > lengthThreshold) {  // If any potentiometer exceeds threshold
+    digitalWrite(BUZZER_PIN, HIGH);  // Activate the buzzer
+    delay(500);  // Buzzer on for 500ms
+    digitalWrite(BUZZER_PIN, LOW);  // Turn off the buzzer
+    Serial.println("Length Exceeded!");  // Print message to serial
+  }
+}
 </code></pre>
     </section>
 
